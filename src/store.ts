@@ -20,7 +20,6 @@ export interface WitnessView {
   id: number
   n: number
   size: number
-  ratio: number
   elements: string // JSON array text
   created_at: string
   submitter_name: string | null
@@ -34,7 +33,7 @@ export async function loadWitness(
   id: number,
 ): Promise<{ witness: WitnessView; comment: CommentView | null } | null> {
   const witness = await env.DB.prepare(
-    `SELECT w.id, w.n, w.size, w.ratio, w.elements, w.created_at, w.current_comment_id,
+    `SELECT w.id, w.n, w.size, w.elements, w.created_at, w.current_comment_id,
             u.display_name AS submitter_name,
             (SELECT MAX(size) FROM witnesses WHERE n = w.n) AS record_size,
             (SELECT id FROM witnesses WHERE n = w.n ORDER BY size DESC LIMIT 1) AS record_id
@@ -87,14 +86,13 @@ export function commentaryHistory(env: Bindings, witnessId: number): Promise<Com
 }
 
 // One row in the recent-activity feed: a record-setting witness or a
-// commentary edit. Both carry the witness's n/size/ratio for context.
+// commentary edit. Both carry the witness's n/size for context.
 export interface ActivityItem {
   kind: 'record' | 'commentary'
   ts: string
   witness_id: number
   n: number
   size: number
-  ratio: number
   user: string | null
   content: string | null
 }
@@ -110,13 +108,13 @@ export async function recentActivity(
 ): Promise<{ items: ActivityItem[]; page: number; hasOlder: boolean }> {
   const size = ACTIVITY_PAGE_SIZE
   const { results } = await env.DB.prepare(
-    `SELECT kind, ts, witness_id, n, size, ratio, user, content FROM (
+    `SELECT kind, ts, witness_id, n, size, user, content FROM (
          SELECT 'record' AS kind, w.created_at AS ts, w.id AS witness_id,
-                w.n, w.size, w.ratio, u.display_name AS user, NULL AS content
+                w.n, w.size, u.display_name AS user, NULL AS content
            FROM witnesses w LEFT JOIN users u ON u.id = w.submitter_user_id
          UNION ALL
          SELECT 'commentary' AS kind, cl.created_at AS ts, cl.witness_id AS witness_id,
-                w.n, w.size, w.ratio, cu.display_name AS user, cl.content AS content
+                w.n, w.size, cu.display_name AS user, cl.content AS content
            FROM commentary_log cl
            LEFT JOIN users cu ON cu.id = cl.user_id
            JOIN witnesses w ON w.id = cl.witness_id
@@ -142,16 +140,20 @@ export function listTokens(env: Bindings, userId: number): Promise<TokenRow[]> {
     .then((r) => r.results)
 }
 
-/** The user's record-setting witnesses, best score first, flagged when still the record. */
+/** The user's record-setting witnesses, best exponent first, flagged when still the record. */
 export function userWitnesses(env: Bindings, userId: number): Promise<UserWitnessRow[]> {
   return env.DB.prepare(
-    `SELECT w.id, w.n, w.size, w.ratio, w.created_at,
+    `SELECT w.id, w.n, w.size, w.created_at,
             (w.size = (SELECT MAX(size) FROM witnesses WHERE n = w.n)) AS is_current
-       FROM witnesses w WHERE w.submitter_user_id = ? ORDER BY w.ratio DESC, w.n`,
+       FROM witnesses w WHERE w.submitter_user_id = ?`,
   )
     .bind(userId)
     .all<UserWitnessRow>()
-    .then((r) => r.results)
+    .then((r) =>
+      r.results.sort(
+        (a, b) => Math.log(b.size) / Math.log(b.n) - Math.log(a.size) / Math.log(a.n) || a.n - b.n,
+      ),
+    )
 }
 
 /** One row on the /witnesses listing page. */
@@ -159,7 +161,6 @@ export interface WitnessListRow {
   id: number
   n: number
   size: number
-  ratio: number
   created_at: string
   submitter: string | null
   is_current: number // SQLite boolean: 1 when still the record for n
@@ -168,7 +169,7 @@ export interface WitnessListRow {
 /** Every record-setting witness ever stored, current and superseded. */
 export function allWitnesses(env: Bindings): Promise<WitnessListRow[]> {
   return env.DB.prepare(
-    `SELECT w.id, w.n, w.size, w.ratio, w.created_at,
+    `SELECT w.id, w.n, w.size, w.created_at,
             u.display_name AS submitter,
             (w.size = (SELECT MAX(size) FROM witnesses WHERE n = w.n)) AS is_current
        FROM witnesses w LEFT JOIN users u ON u.id = w.submitter_user_id

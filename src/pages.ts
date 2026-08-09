@@ -35,7 +35,6 @@ export interface UserWitnessRow {
   id: number
   n: number
   size: number
-  ratio: number
   created_at: string
   is_current: number // SQLite boolean: 1 when still the record for n
 }
@@ -181,9 +180,7 @@ function recordDot(p: RecordPoint, cy: number): string {
     Math.log10(p.n),
   ).toFixed(1)}" cy="${cy.toFixed(1)}" r="${beats ? 4.5 : 3}"><title>N = ${p.n.toLocaleString(
     'en-US',
-  )}: record |A| = ${p.size.toLocaleString('en-US')} (score ${ratio.toFixed(4)}, exponent ${exponent.toFixed(
-    4,
-  )})</title></circle></a>`
+  )}: record |A| = ${p.size.toLocaleString('en-US')} (exponent ${exponent.toFixed(4)})</title></circle></a>`
 }
 
 function plotSvg(ariaLabel: string, yTitle: string, body: string): string {
@@ -303,10 +300,6 @@ function verifierForm(state: FormState, user: User | null): string {
   </section>`
 }
 
-function fmtRatio(r: number): string {
-  return r.toFixed(4)
-}
-
 function recordSection(size: number, N: number, record?: RecordStatus): string {
   if (!record) return ''
   const nStr = N.toLocaleString('en-US')
@@ -346,7 +339,6 @@ function resultSection(result: VerifyResult, record?: RecordStatus): string {
         <div><dt>N</dt><dd>${result.N.toLocaleString('en-US')}</dd></div>
         <div><dt>|A|</dt><dd>${result.size.toLocaleString('en-US')}</dd></div>
         <div><dt>&radic;<span class="sqrt">N</span></dt><dd>${sqrtN.toFixed(1)}</dd></div>
-        <div><dt>score |A|/&radic;<span class="sqrt">N</span></dt><dd class="score">${fmtRatio(result.ratio)}</dd></div>
         <div><dt>exponent log&thinsp;|A|&thinsp;/&thinsp;log&thinsp;N</dt><dd class="score">${(
           Math.log(result.size) / Math.log(result.N)
         ).toFixed(4)}</dd></div>
@@ -364,7 +356,7 @@ function resultSection(result: VerifyResult, record?: RecordStatus): string {
       ${
         beats
           ? '<p class="beats">This witness beats &radic;<span class="sqrt">N</span>! 🏆</p>'
-          : '<p class="muted">A score above 1 would beat the &radic;<span class="sqrt">N</span> barrier.</p>'
+          : '<p class="muted">An exponent above 0.5 would beat the &radic;<span class="sqrt">N</span> barrier.</p>'
       }
     </section>`
   }
@@ -439,7 +431,7 @@ function userWitnessesSection(rows: UserWitnessRow[]): string {
       (w) => `<tr>
         <td class="num"><a href="/witness/${w.id}">${w.n.toLocaleString('en-US')}</a></td>
         <td class="num">${w.size.toLocaleString('en-US')}</td>
-        <td class="num">${w.ratio.toFixed(4)}</td>
+        <td class="num">${(Math.log(w.size) / Math.log(w.n)).toFixed(4)}</td>
         <td>${escapeHtml(w.created_at)}</td>
         <td>${w.is_current ? 'current record' : '<span class="muted">superseded</span>'}</td>
       </tr>`,
@@ -447,9 +439,9 @@ function userWitnessesSection(rows: UserWitnessRow[]): string {
     .join('\n')
   return `<section class="my-witnesses">
       ${heading}
-      <p class="muted">Witnesses that set the record for their modulus when you submitted them, best score first.</p>
+      <p class="muted">Witnesses that set the record for their modulus when you submitted them, highest exponent first.</p>
       <table class="tokens-table">
-        <thead><tr><th class="num">N</th><th class="num">|A|</th><th class="num">score</th><th>Submitted</th><th>Status</th></tr></thead>
+        <thead><tr><th class="num">N</th><th class="num">|A|</th><th class="num" title="exponent log |A| / log N">exponent</th><th>Submitted</th><th>Status</th></tr></thead>
         <tbody>${trs}</tbody>
       </table>
     </section>`
@@ -529,7 +521,7 @@ export function apiDocsPage(user: User | null = null): string {
   "ok": true,
   "N": 49,
   "size": 5,
-  "ratio": 0.7142857142857143,     // |A| / sqrt(N), the score
+  "ratio": 0.7142857142857143,     // |A| / sqrt(N)
   "valid": true,
   "record": { "recorded": true, "recordSize": 5 }
 }`
@@ -661,7 +653,6 @@ export function witnessDetailPage(
       <dl class="stats">
         <div><dt>N</dt><dd><a href="/witnesses?n=${w.n}" title="all record witnesses for this modulus">${w.n.toLocaleString('en-US')}</a></dd></div>
         <div><dt>|A|</dt><dd>${w.size.toLocaleString('en-US')}</dd></div>
-        <div><dt>score |A|/&radic;<span class="sqrt">N</span></dt><dd class="score">${w.ratio.toFixed(4)}</dd></div>
         <div><dt>exponent log&thinsp;|A|&thinsp;/&thinsp;log&thinsp;N</dt><dd class="score">${(
           Math.log(w.size) / Math.log(w.n)
         ).toFixed(4)}</dd></div>
@@ -752,7 +743,7 @@ export function activityPage(
         ${meta}
         <p class="activity-line">set a record for N = ${a.n.toLocaleString('en-US')} with ${link} &mdash; |A| = ${a.size.toLocaleString(
           'en-US',
-        )}, score ${a.ratio.toFixed(4)}</p>
+        )}, exponent ${(Math.log(a.size) / Math.log(a.n)).toFixed(4)}</p>
       </li>`
     }
     const cleared = !a.content || a.content.length === 0
@@ -785,16 +776,15 @@ export function activityPage(
 
 // The /witnesses table. Sorting is server-side via query params — the column
 // header links carry the target sort state, so the page needs no JS.
-const WITNESS_SORT_KEYS = ['id', 'n', 'size', 'score', 'exponent', 'date'] as const
+const WITNESS_SORT_KEYS = ['id', 'n', 'size', 'exponent', 'date'] as const
 type WitnessSortKey = (typeof WITNESS_SORT_KEYS)[number]
 
-// First-click direction per column: sizes and scores are most interesting
+// First-click direction per column: sizes and exponents are most interesting
 // large-first, ids/moduli small-first.
 const WITNESS_SORT_DEFAULT_DIR: Record<WitnessSortKey, 'asc' | 'desc'> = {
   id: 'asc',
   n: 'asc',
   size: 'desc',
-  score: 'desc',
   exponent: 'desc',
   date: 'desc',
 }
@@ -806,7 +796,7 @@ export function witnessesPage(
 ): string {
   const sort: WitnessSortKey = (WITNESS_SORT_KEYS as readonly string[]).includes(query.sort ?? '')
     ? (query.sort as WitnessSortKey)
-    : 'score'
+    : 'exponent'
   const dir: 'asc' | 'desc' =
     query.dir === 'asc' || query.dir === 'desc' ? query.dir : WITNESS_SORT_DEFAULT_DIR[sort]
   const nFilter = /^\d+$/.test(query.n ?? '') ? Number(query.n) : null
@@ -819,7 +809,6 @@ export function witnessesPage(
     id: (w) => w.id,
     n: (w) => w.n,
     size: (w) => w.size,
-    score: (w) => w.ratio,
     exponent,
     date: (w) => w.created_at,
   }
@@ -842,7 +831,7 @@ export function witnessesPage(
     n: number | null = nFilter,
   ): string => {
     const q = new URLSearchParams()
-    if (!(s === 'score' && d === 'desc')) {
+    if (!(s === 'exponent' && d === 'desc')) {
       q.set('sort', s)
       q.set('dir', d)
     }
@@ -867,7 +856,6 @@ export function witnessesPage(
         <td><a href="/witness/${w.id}">#${w.id}</a></td>
         <td class="num"><a href="${href(sort, dir, currentOnly, w.n)}" title="show only N = ${w.n.toLocaleString('en-US')}">${w.n.toLocaleString('en-US')}</a></td>
         <td class="num">${w.size.toLocaleString('en-US')}</td>
-        <td class="num">${w.ratio.toFixed(4)}</td>
         <td class="num">${exponent(w).toFixed(4)}</td>
         <td>${w.submitter ? escapeHtml(w.submitter) : '<span class="muted">anonymous</span>'}</td>
         <td>${escapeHtml(w.created_at)}</td>
@@ -887,7 +875,7 @@ export function witnessesPage(
   // The modulus filter is a plain GET form (the page has no JS); hidden inputs
   // mirror href() so submitting preserves the sort state.
   const hiddenState =
-    sort === 'score' && dir === 'desc'
+    sort === 'exponent' && dir === 'desc'
       ? ''
       : `<input type="hidden" name="sort" value="${sort}"><input type="hidden" name="dir" value="${dir}">`
   const modulusFilter =
@@ -920,7 +908,6 @@ export function witnessesPage(
           ${th('id', 'witness')}
           ${th('n', 'N', 'num')}
           ${th('size', '|A|', 'num')}
-          ${th('score', 'score', 'num', 'score |A| / sqrt(N)')}
           ${th('exponent', 'exponent', 'num', 'exponent log |A| / log N')}
           <th>submitter</th>
           ${th('date', 'submitted')}

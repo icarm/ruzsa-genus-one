@@ -28,14 +28,14 @@ export interface McpProps extends Record<string, unknown> {
 const PROBLEM_BLURB =
   `Ruzsa's genus-one problem: fix a modulus N and find a large subset A of Z/NZ ` +
   `with no nontrivial solutions to a + 3b ≡ 2c + 2d (mod N) — nontrivial meaning ` +
-  `not all of a, b, c, d equal. Two scores are reported for a valid set: ratio = |A|/√N ` +
+  `not all of a, b, c, d equal. Two measures are reported for a valid set: ratio = |A|/√N ` +
   `and exponent = log|A|/log N. Best known constructions sit at the √N barrier ` +
   `(ratio ≈ 1, exponent ≈ 0.5); the conjecture is that exponents approaching 1 are ` +
   `possible, so anything with ratio > 1 (exponent > 0.5) would be a breakthrough. ` +
   `The site records the largest known valid set for each N. ` +
   `Limits: 2 ≤ N ≤ ${MAX_N}, |A| ≤ ${MAX_SET_SIZE}.`
 
-/** log|A| / log N — the site's "exponent" score (√N barrier = 0.5). */
+/** log|A| / log N — the site's "exponent" (√N barrier = 0.5). */
 function exponentOf(n: number, size: number): number {
   return Math.log(size) / Math.log(n)
 }
@@ -79,7 +79,7 @@ function buildServer(env: Bindings, props: McpProps): McpServer {
       title: 'List current records',
       description:
         `List the current record witness for every modulus that has one. ${PROBLEM_BLURB} ` +
-        `Returns one entry per modulus: the record size, the score (size/√N), and the witness id. ` +
+        `Returns one entry per modulus: the record size, the ratio and exponent, and the witness id. ` +
         `Use get_record to fetch a record's elements.`,
       inputSchema: z.object({}),
     },
@@ -136,7 +136,7 @@ function buildServer(env: Bindings, props: McpProps): McpServer {
       title: 'Verify a candidate set',
       description:
         `Check whether a set A is solution-free for a + 3b ≡ 2c + 2d (mod N), without ` +
-        `submitting it. ${PROBLEM_BLURB} Returns valid/invalid, the size and score, and a ` +
+        `submitting it. ${PROBLEM_BLURB} Returns valid/invalid, the size, ratio, and exponent, and a ` +
         `concrete counterexample (a, b, c, d) when invalid.`,
       inputSchema: setInputSchema,
     },

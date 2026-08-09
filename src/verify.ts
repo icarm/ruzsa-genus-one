@@ -32,7 +32,7 @@ export type VerifyResult =
       valid: boolean
       N: number
       size: number
-      /** |A| / sqrt(N), the score to maximize. */
+      /** |A| / sqrt(N); above 1 beats the sqrt(N) barrier. */
       ratio: number
       /** Elements after reduction mod N, sorted. */
       elements: number[]
