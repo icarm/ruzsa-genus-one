@@ -15,7 +15,7 @@ the sense of Ruzsa, [*Solving a linear equation in a set of integers I*,
 Acta Arith. 65 (1993)](https://matwbn.icm.edu.pl/ksiazki/aa/aa65/aa6537.pdf).
 Best known constructions have |A| = Θ(√N); the conjecture is that
 |A| = N^(1−o(1)) is possible. The challenge: a *witness* — a verified
-solution-free set — with score |A|/√N > 1.
+solution-free set — with |A| > √N, i.e. exponent log |A| / log N > 1/2.
 
 ## The site
 
@@ -27,6 +27,9 @@ solution-free set — with score |A|/√N > 1.
   page plots r(N) against N on log-log axes with the √N barrier drawn in.
 - **Witness pages** with a single editable commentary each (full edit
   history kept), plus a paginated recent-activity feed.
+- **Zulip announcements.** A submission whose exponent strictly beats every
+  previously recorded witness's is announced to Zulip via an incoming
+  webhook (`src/zulip.ts`); skipped when the secret is unset.
 - **JSON API** (`POST /api/verify`, bearer tokens managed on the profile
   page) and a full database download (`GET /database.json`). Docs at
   [/api](https://ruzsa-genus-one.icarm.cloud/api).
@@ -74,3 +77,13 @@ One-time setup: create the D1 database and KV namespace (ids in
 `wrangler.jsonc`), and set `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` via
 `wrangler secret put` from a GitHub OAuth app whose callback URL is
 `https://ruzsa-genus-one.icarm.cloud/auth/github/callback`.
+
+Optionally set `ZULIP_WEBHOOK_URL` (also via `wrangler secret put`) to a
+Zulip [Slack-compatible incoming webhook](https://zulip.com/integrations/doc/slack_incoming)
+URL — from an *Incoming webhook* bot's API key, with the target channel and
+topic baked in:
+
+    https://icarm.zulipchat.com/api/v1/external/slack_incoming?api_key=<BOT_API_KEY>&stream=general&topic=Ruzsa+Genus+One
+
+New-best-exponent records are then announced there. Unset, notifications
+are skipped.

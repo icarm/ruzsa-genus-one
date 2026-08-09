@@ -56,6 +56,7 @@ import {
   SUBMISSION_RATE_LIMIT,
   SUBMISSION_RATE_PERIOD_SEC,
 } from './rateLimit'
+import { notifyNewBestExponent } from './zulip'
 
 const rateLimitMessage = `submission rate limit exceeded: ${SUBMISSION_RATE_LIMIT} per ${SUBMISSION_RATE_PERIOD_SEC} seconds`
 
@@ -307,7 +308,12 @@ app.post('/verify', async (c) => {
   let record: RecordStatus | undefined
   if (result.ok && result.valid) {
     record = await recordWitness(c.env, result, user.id)
-    if (record.recorded) return c.redirect(`/witness/${record.witnessId}?new=1`, 303)
+    if (record.recorded) {
+      c.executionCtx.waitUntil(
+        notifyNewBestExponent(c.env, record, result, user.display_name ?? null, new URL(c.req.url).origin),
+      )
+      return c.redirect(`/witness/${record.witnessId}?new=1`, 303)
+    }
   }
   const flash: ResultFlash = {
     result: result.ok ? { ...result, elements: [] } : result,
@@ -386,6 +392,11 @@ app.post('/api/verify', async (c) => {
   let commentaryApplied: boolean | undefined
   if (result.valid) {
     record = await recordWitness(c.env, result, user.id)
+    if (record.recorded) {
+      c.executionCtx.waitUntil(
+        notifyNewBestExponent(c.env, record, result, user.display_name ?? null, new URL(c.req.url).origin),
+      )
+    }
     if (typeof commentary === 'string' && commentary.trim() !== '') {
       commentaryApplied = record.recorded
       if (record.recorded) {

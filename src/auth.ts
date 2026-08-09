@@ -18,6 +18,12 @@ export interface Bindings {
   OAUTH_PROVIDER: OAuthHelpers
   GITHUB_CLIENT_ID?: string
   GITHUB_CLIENT_SECRET?: string
+  /**
+   * Zulip Slack-compatible incoming webhook URL for new-best-exponent
+   * announcements (see src/zulip.ts). Set via `wrangler secret put
+   * ZULIP_WEBHOOK_URL`; unset = no notifications.
+   */
+  ZULIP_WEBHOOK_URL?: string
 }
 export type AppEnv = { Bindings: Bindings; Variables: { user: User | null } }
 type Ctx = Context<AppEnv>

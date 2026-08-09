@@ -18,6 +18,7 @@ import {
   recordWitness,
 } from './store'
 import { MAX_N, MAX_SET_SIZE, verify } from './verify'
+import { notifyNewBestExponent } from './zulip'
 
 /** Stored in the OAuth grant at consent time; decrypted into ctx.props. */
 export interface McpProps extends Record<string, unknown> {
@@ -70,7 +71,7 @@ async function rateLimited(env: Bindings, userId: number) {
   )
 }
 
-function buildServer(env: Bindings, props: McpProps): McpServer {
+function buildServer(env: Bindings, props: McpProps, ctx: ExecutionContext): McpServer {
   const server = new McpServer({ name: 'ruzsa-genus-one', version: '1.0.0' })
 
   server.registerTool(
@@ -185,6 +186,17 @@ function buildServer(env: Bindings, props: McpProps): McpServer {
       const rest = { ...withoutElements, exponent: exponentOf(result.N, result.size) }
       if (!result.valid) return jsonResult(rest)
       const record = await recordWitness(env, result, props.userId)
+      if (record.recorded) {
+        ctx.waitUntil(
+          notifyNewBestExponent(
+            env,
+            record,
+            result,
+            props.displayName,
+            'https://ruzsa-genus-one.icarm.cloud',
+          ),
+        )
+      }
       // Commentary only lands on a record-setting submission: the new witness
       // is the submitter's own row, so nobody else's notes are at risk.
       let commentaryApplied: boolean | undefined
@@ -217,6 +229,6 @@ export const mcpApiHandler = {
     if (!props || typeof props.userId !== 'number') {
       return Promise.resolve(Response.json({ error: 'unauthorized' }, { status: 401 }))
     }
-    return createMcpHandler(() => buildServer(env, props)).fetch(request)
+    return createMcpHandler(() => buildServer(env, props, ctx)).fetch(request)
   },
 }
