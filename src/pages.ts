@@ -265,8 +265,8 @@ function recordsSection(records: RecordPoint[], plot: PlotKind): string {
     records.length === 0
       ? '<p class="muted">No record witnesses yet &mdash; submit a valid set to put the first dot on the board.</p>'
       : `<nav class="plot-tabs">
-      ${tab('size', '/', 'record size |A|')}
-      ${tab('exponent', '/?plot=exponent', 'exponent log&thinsp;|A|&thinsp;/&thinsp;log&thinsp;N')}
+      ${tab('exponent', '/', 'exponent log&thinsp;|A|&thinsp;/&thinsp;log&thinsp;N')}
+      ${tab('size', '/?plot=size', 'record size |A|')}
     </nav>
     <div class="plot-panel">${plot === 'exponent' ? exponentPlot(records) : sizePlot(records)}</div>`
   return `
@@ -381,7 +381,7 @@ export function landingPage(
   user: User | null = null,
   records: RecordPoint[] = [],
   resultExpired = false,
-  plot: PlotKind = 'size',
+  plot: PlotKind = 'exponent',
 ): string {
   const expiredNote = resultExpired
     ? '<section class="prose"><p class="muted">That result link has expired &mdash; submit the set again below.</p></section>'

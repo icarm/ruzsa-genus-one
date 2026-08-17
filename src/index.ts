@@ -76,7 +76,7 @@ app.get('/', async (c) =>
       c.get('user'),
       await currentRecords(c.env),
       c.req.query('expired') === '1',
-      c.req.query('plot') === 'exponent' ? 'exponent' : 'size',
+      c.req.query('plot') === 'size' ? 'size' : 'exponent',
     ),
   ),
 )
