@@ -123,10 +123,12 @@ function problemStatement(): string {
       A solution is <em>trivial</em> when <var>a</var> = <var>b</var> = <var>c</var> = <var>d</var>.
     </p>
     <p>
-      The best known constructions achieve
-      |<var>A</var>| = &Theta;(&radic;<span class="sqrt">N</span>), while the
-      conjecture is that |<var>A</var>| = <var>N</var><sup>1&minus;o(1)</sup>
-      is possible. The challenge: find a witness with
+      In <a class="external" href="https://matwbn.icm.edu.pl/ksiazki/aa/aa65/aa6537.pdf">a
+      1993 paper</a>, Imre Z. Ruzsa suggested that
+      |<var>A</var>| = <var>N</var><sup>1&minus;o(1)</sup> could be achievable.
+      There are known constructions that reach
+      |<var>A</var>| = &Theta;(&radic;<span class="sqrt">N</span>).
+      Our challenge: find a witness with
       |<var>A</var>| &gt; &radic;<span class="sqrt">N</span>.
     </p>
   </section>`
