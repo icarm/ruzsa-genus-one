@@ -59,38 +59,20 @@ const PROVIDERS: Record<string, Provider> = {
     authorize: 'https://github.com/login/oauth/authorize',
     token: 'https://github.com/login/oauth/access_token',
     userInfo: 'https://api.github.com/user',
-    scope: 'read:user user:email',
+    // Empty scope = read-only access to public profile info, which is all we
+    // use; the consent screen then only mentions public data.
+    scope: '',
     clientIdEnv: 'GITHUB_CLIENT_ID',
     clientSecretEnv: 'GITHUB_CLIENT_SECRET',
-    mapUser: async (info, accessToken) => ({
+    mapUser: async (info) => ({
       provider_user_id: String(info.id),
-      email: info.email || (await githubPrimaryEmail(accessToken)),
+      // Only the address the user has made public on their profile; we do not
+      // request the user:email scope.
+      email: info.email || null,
       display_name: info.name || info.login || null,
       avatar_url: info.avatar_url || null,
     }),
   },
-}
-
-// /user only returns `email` when public; otherwise fetch the primary verified
-// address (granted by the user:email scope).
-async function githubPrimaryEmail(accessToken: string): Promise<string | null> {
-  try {
-    const r = await fetch('https://api.github.com/user/emails', {
-      headers: {
-        authorization: `Bearer ${accessToken}`,
-        'user-agent': 'ruzsa-genus-one',
-        accept: 'application/json',
-      },
-    })
-    if (!r.ok) return null
-    const emails = await r.json()
-    if (!Array.isArray(emails)) return null
-    const primary =
-      emails.find((e) => e.primary && e.verified) || emails.find((e) => e.verified) || null
-    return primary ? primary.email : null
-  } catch {
-    return null
-  }
 }
 
 async function sha256Hex(s: string): Promise<string> {
@@ -183,7 +165,7 @@ export async function startOAuth(c: Ctx): Promise<Response> {
   const authUrl = new URL(provider.authorize)
   authUrl.searchParams.set('client_id', clientId)
   authUrl.searchParams.set('redirect_uri', redirectUri)
-  authUrl.searchParams.set('scope', provider.scope)
+  if (provider.scope) authUrl.searchParams.set('scope', provider.scope)
   authUrl.searchParams.set('state', state)
   return c.redirect(authUrl.toString(), 302)
 }
