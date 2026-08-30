@@ -343,7 +343,7 @@ function resultSection(result: VerifyResult, record?: RecordStatus): string {
         <div><dt>&radic;<span class="sqrt">N</span></dt><dd>${sqrtN.toFixed(1)}</dd></div>
         <div><dt>exponent log&thinsp;|A|&thinsp;/&thinsp;log&thinsp;N</dt><dd class="score">${(
           Math.log(result.size) / Math.log(result.N)
-        ).toFixed(4)}</dd></div>
+        ).toFixed(6)}</dd></div>
       </dl>`
   if (result.valid) {
     const beats = result.ratio > 1
@@ -657,7 +657,7 @@ export function witnessDetailPage(
         <div><dt>|A|</dt><dd>${w.size.toLocaleString('en-US')}</dd></div>
         <div><dt>exponent log&thinsp;|A|&thinsp;/&thinsp;log&thinsp;N</dt><dd class="score">${(
           Math.log(w.size) / Math.log(w.n)
-        ).toFixed(4)}</dd></div>
+        ).toFixed(6)}</dd></div>
       </dl>
       <dl class="witness-meta">
         <dt>status</dt><dd>${status}</dd>

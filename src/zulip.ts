@@ -65,10 +65,10 @@ export async function notifyNewBestExponent(
   const link = `${baseUrl}/witness/${status.witnessId}`
   const who = submitter ? ` by **${submitter}**` : ''
   const prevText = prev
-    ? `beating the previous best ${prev.exponent.toFixed(4)} ([witness #${prev.id}](${baseUrl}/witness/${prev.id}))`
+    ? `beating the previous best ${prev.exponent.toFixed(6)} ([witness #${prev.id}](${baseUrl}/witness/${prev.id}))`
     : 'the first witness on the board'
   const text =
-    `:trophy: **New best exponent: ${exponent.toFixed(4)}** — ` +
+    `:trophy: **New best exponent: ${exponent.toFixed(6)}** — ` +
     `[witness #${status.witnessId}](${link}) for N = ${result.N.toLocaleString('en-US')} ` +
     `with |A| = ${result.size.toLocaleString('en-US')}, submitted${who}, ${prevText}.` +
     (exponent > 0.5 ? '\n:tada: This witness beats the √N barrier!' : '')
