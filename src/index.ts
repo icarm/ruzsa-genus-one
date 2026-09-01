@@ -76,11 +76,16 @@ app.get('/', async (c) =>
   c.html(
     landingPage(
       c.get('user'),
-      await currentRecords(c.env),
       c.req.query('expired') === '1',
       c.req.query('plot') === 'size' ? 'size' : 'exponent',
     ),
   ),
+)
+
+// Compact feed for the client-rendered homepage plot (see public/plot.js):
+// one [witnessId, n, size] triple per modulus with a record.
+app.get('/records.json', async (c) =>
+  c.json((await currentRecords(c.env)).map((r) => [r.id, r.n, r.size])),
 )
 
 app.get('/auth/:provider', startOAuth)

@@ -222,8 +222,23 @@ var {
   font-style: italic;
   font-family: Georgia, "Times New Roman", serif;
 }
-.records-plot .dot { fill: var(--accent); }
-.records-plot .dot.beats-sqrt { fill: var(--valid); stroke: var(--fg); stroke-width: 1; }
+/* The dots are drawn by plot.js onto a canvas overlaid on the SVG frame. */
+.plot-stage { position: relative; margin: 0.5rem 0; }
+.plot-stage .records-plot { display: block; margin: 0; }
+.plot-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.plot-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  color: var(--fg);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 2;
+}
+.plot-tooltip[hidden] { display: none; }
 
 .plot-caption {
   font-size: 0.85rem;
@@ -406,15 +421,6 @@ var {
 }
 
 /* Witness pages, commentary, recent activity */
-
-.records-plot a .dot {
-  cursor: pointer;
-}
-
-.records-plot a:hover .dot {
-  fill: #ffd267;
-  r: 5;
-}
 
 .witness-meta {
   margin: 1rem 0;

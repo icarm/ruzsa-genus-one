@@ -174,18 +174,6 @@ function xDecadeGrid(): string {
   return grid
 }
 
-// One record dot linking to its witness page; cy is view-specific.
-function recordDot(p: RecordPoint, cy: number): string {
-  const ratio = p.size / Math.sqrt(p.n)
-  const exponent = Math.log(p.size) / Math.log(p.n)
-  const beats = ratio > 1
-  return `<a href="/witness/${p.id}"><circle class="dot${beats ? ' beats-sqrt' : ''}" cx="${plotX(
-    Math.log10(p.n),
-  ).toFixed(1)}" cy="${cy.toFixed(1)}" r="${beats ? 4.5 : 3}"><title>N = ${p.n.toLocaleString(
-    'en-US',
-  )}: record |A| = ${p.size.toLocaleString('en-US')} (exponent ${exponent.toFixed(4)})</title></circle></a>`
-}
-
 function plotSvg(ariaLabel: string, yTitle: string, body: string): string {
   return `<svg class="records-plot" viewBox="0 0 ${PLOT.W} ${PLOT.H}" role="img" aria-label="${ariaLabel}">
       ${body}
@@ -198,7 +186,7 @@ function plotSvg(ariaLabel: string, yTitle: string, body: string): string {
 
 // Log-log view: record size r(N) against N. The y-scale is chosen so the
 // r = sqrt(N) goal line runs corner to corner.
-function sizePlot(pts: RecordPoint[]): string {
+function sizePlot(): string {
   const ymax = LOG_NMAX / 2
   const Y = (logR: number) => PLOT.T + INNER_H - (logR / ymax) * INNER_H
 
@@ -218,18 +206,17 @@ function sizePlot(pts: RecordPoint[]): string {
   const sqrtLine = `<line class="guide guide-sqrt" x1="${gx1.toFixed(1)}" y1="${gy1.toFixed(1)}" x2="${gx2.toFixed(1)}" y2="${gy2.toFixed(1)}"/>
       <text class="guide-label" transform="rotate(${lineAngle.toFixed(1)} ${labelX.toFixed(1)} ${labelY.toFixed(1)})" x="${labelX.toFixed(1)}" y="${labelY.toFixed(1)}" dy="-7" text-anchor="end">|A| = &#8730;N</text>`
 
-  const dots = pts.map((p) => recordDot(p, Y(Math.log10(p.size)))).join('\n      ')
   return plotSvg(
     'record witness size versus modulus, log-log scatter plot',
     'record witness size |A| &#8594;',
-    `${grid}\n      ${sqrtLine}\n      ${dots}`,
+    `${grid}\n      ${sqrtLine}`,
   )
 }
 
 // Exponent view: log r(N) / log N against N, linear y from 0.35 to 1/2, so
 // the sqrt(N) barrier is the horizontal line along the top edge. Weak records
 // below the window are simply cut off.
-function exponentPlot(pts: RecordPoint[]): string {
+function exponentPlot(): string {
   const ymin = 0.35, ymax = 0.5
   const Y = (v: number) => PLOT.T + INNER_H - ((v - ymin) / (ymax - ymin)) * INNER_H
 
@@ -243,33 +230,38 @@ function exponentPlot(pts: RecordPoint[]): string {
   const sqrtLine = `<line class="guide guide-sqrt" x1="${PLOT.L}" y1="${Y(0.5)}" x2="${PLOT.W - PLOT.R}" y2="${Y(0.5)}"/>
       <text class="guide-label" x="${PLOT.W - PLOT.R - 8}" y="${(Y(0.5) + 16).toFixed(1)}" text-anchor="end">|A| = &#8730;N</text>`
 
-  const dots = pts
-    .filter((p) => Math.log(p.size) / Math.log(p.n) >= ymin)
-    .map((p) => recordDot(p, Y(Math.log(p.size) / Math.log(p.n))))
-    .join('\n      ')
   return plotSvg(
     'exponent log |A| over log N versus modulus scatter plot',
     'exponent log |A| / log N &#8594;',
-    `${grid}\n      ${sqrtLine}\n      ${dots}`,
+    `${grid}\n      ${sqrtLine}`,
   )
 }
 
 /** Which records plot the home page shows; selected via the ?plot= query param. */
 export type PlotKind = 'size' | 'exponent'
 
-function recordsSection(records: RecordPoint[], plot: PlotKind): string {
+// The SVG carries only the static frame (axes, grid, guides); the dots — one
+// per modulus, 30k+ of them — are drawn client-side onto a canvas overlay by
+// /plot.js from /records.json, keeping the page payload and DOM small.
+function recordsSection(plot: PlotKind): string {
   const tab = (kind: PlotKind, href: string, label: string) =>
     kind === plot
       ? `<span class="active" aria-current="page">${label}</span>`
       : `<a href="${href}">${label}</a>`
-  const inner =
-    records.length === 0
-      ? '<p class="muted">No record witnesses yet &mdash; submit a valid set to put the first dot on the board.</p>'
-      : `<nav class="plot-tabs">
+  const inner = `<nav class="plot-tabs">
       ${tab('exponent', '/', 'exponent log&thinsp;|A|&thinsp;/&thinsp;log&thinsp;N')}
       ${tab('size', '/?plot=size', 'record size |A|')}
     </nav>
-    <div class="plot-panel">${plot === 'exponent' ? exponentPlot(records) : sizePlot(records)}</div>`
+    <div class="plot-panel">
+      <div class="plot-stage" data-plot="${plot}">
+        ${plot === 'exponent' ? exponentPlot() : sizePlot()}
+        <canvas class="plot-canvas" aria-hidden="true"></canvas>
+        <div class="plot-tooltip" hidden></div>
+      </div>
+      <noscript><p class="muted">Drawing the record dots needs JavaScript &mdash;
+      <a href="/witnesses">browse the witness table</a> instead.</p></noscript>
+    </div>
+    <script src="/plot.js" defer></script>`
   return `
   <section class="panel records">
     ${inner}
@@ -380,7 +372,6 @@ function resultSection(result: VerifyResult, record?: RecordStatus): string {
 
 export function landingPage(
   user: User | null = null,
-  records: RecordPoint[] = [],
   resultExpired = false,
   plot: PlotKind = 'exponent',
 ): string {
@@ -390,7 +381,7 @@ export function landingPage(
   const body = `
     ${problemStatement()}
     ${expiredNote}
-    ${recordsSection(records, plot)}
+    ${recordsSection(plot)}
     ${verifierForm({}, user)}
     <section class="prose api-note">
       <h2>API</h2>
