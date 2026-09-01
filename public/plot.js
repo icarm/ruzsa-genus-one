@@ -16,6 +16,7 @@
   var canvas = stage.querySelector('.plot-canvas')
   var tooltip = stage.querySelector('.plot-tooltip')
   var loading = stage.querySelector('.plot-loading')
+  var refresh = document.querySelector('.plot-refresh')
   var ctx = canvas.getContext('2d')
   // Revealed only from JS so users without it never see a stuck indicator;
   // removed (or turned into an error note) when the fetch settles.
@@ -135,31 +136,54 @@
     if (p) window.location.href = '/witness/' + p.id
   })
 
-  fetch('/records.json')
-    .then(function (res) {
-      if (!res.ok) throw new Error('records.json returned ' + res.status)
-      return res.json()
-    })
-    .then(function (records) {
-      if (loading) loading.remove()
-      if (records.length === 0) {
-        var msg = document.createElement('p')
-        msg.className = 'muted'
-        msg.textContent =
-          'No record witnesses yet — submit a valid set to put the first dot on the board.'
-        stage.parentNode.insertBefore(msg, stage)
-        return
-      }
-      project(records)
-      draw()
-      if (window.ResizeObserver) new ResizeObserver(draw).observe(canvas)
-    })
-    .catch(function (err) {
-      console.error('failed to load records:', err)
-      if (loading) {
-        loading.hidden = false
-        loading.textContent = 'failed to load the records — reload to retry'
-        loading.classList.add('failed')
-      }
-    })
+  var observing = false
+  function load(initial) {
+    if (!initial && refresh) {
+      refresh.disabled = true
+      refresh.textContent = 'refreshing\u2026'
+    }
+    fetch('/records.json')
+      .then(function (res) {
+        if (!res.ok) throw new Error('records.json returned ' + res.status)
+        return res.json()
+      })
+      .then(function (records) {
+        if (loading) loading.remove()
+        if (refresh) {
+          refresh.disabled = false
+          refresh.textContent = 'refresh'
+          refresh.hidden = false // JS-only affordance: reveal once it works
+        }
+        setHover(null)
+        if (initial && records.length === 0) {
+          var msg = document.createElement('p')
+          msg.className = 'muted'
+          msg.textContent =
+            'No record witnesses yet — submit a valid set to put the first dot on the board.'
+          stage.parentNode.insertBefore(msg, stage)
+          return
+        }
+        project(records)
+        draw()
+        if (window.ResizeObserver && !observing) {
+          observing = true
+          new ResizeObserver(draw).observe(canvas)
+        }
+      })
+      .catch(function (err) {
+        console.error('failed to load records:', err)
+        if (initial && loading) {
+          loading.hidden = false
+          loading.textContent = 'failed to load the records — reload to retry'
+          loading.classList.add('failed')
+        }
+        if (!initial && refresh) {
+          refresh.disabled = false
+          refresh.textContent = 'refresh failed \u2014 retry'
+        }
+      })
+  }
+
+  if (refresh) refresh.addEventListener('click', function () { load(false) })
+  load(true)
 })()

@@ -251,6 +251,8 @@ function recordsSection(plot: PlotKind): string {
   const inner = `<nav class="plot-tabs">
       ${tab('exponent', '/', 'exponent log&thinsp;|A|&thinsp;/&thinsp;log&thinsp;N')}
       ${tab('size', '/?plot=size', 'record size |A|')}
+      <button class="plot-refresh" type="button" hidden
+        title="re-fetch the records without reloading the page">refresh</button>
     </nav>
     <div class="plot-panel">
       <div class="plot-stage" data-plot="${plot}">
