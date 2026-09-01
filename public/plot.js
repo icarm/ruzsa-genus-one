@@ -15,7 +15,11 @@
   var view = stage.dataset.plot // 'exponent' | 'size'
   var canvas = stage.querySelector('.plot-canvas')
   var tooltip = stage.querySelector('.plot-tooltip')
+  var loading = stage.querySelector('.plot-loading')
   var ctx = canvas.getContext('2d')
+  // Revealed only from JS so users without it never see a stuck indicator;
+  // removed (or turned into an error note) when the fetch settles.
+  if (loading) loading.hidden = false
 
   var W = 720, H = 440, L = 56, R = 18, T = 18, B = 46
   var IW = W - L - R, IH = H - T - B
@@ -137,6 +141,7 @@
       return res.json()
     })
     .then(function (records) {
+      if (loading) loading.remove()
       if (records.length === 0) {
         var msg = document.createElement('p')
         msg.className = 'muted'
@@ -151,5 +156,10 @@
     })
     .catch(function (err) {
       console.error('failed to load records:', err)
+      if (loading) {
+        loading.hidden = false
+        loading.textContent = 'failed to load the records — reload to retry'
+        loading.classList.add('failed')
+      }
     })
 })()

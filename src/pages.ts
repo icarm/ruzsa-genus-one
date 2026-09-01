@@ -256,6 +256,7 @@ function recordsSection(plot: PlotKind): string {
       <div class="plot-stage" data-plot="${plot}">
         ${plot === 'exponent' ? exponentPlot() : sizePlot()}
         <canvas class="plot-canvas" aria-hidden="true"></canvas>
+        <div class="plot-loading" hidden>loading records&hellip;</div>
         <div class="plot-tooltip" hidden></div>
       </div>
       <noscript><p class="muted">Drawing the record dots needs JavaScript &mdash;

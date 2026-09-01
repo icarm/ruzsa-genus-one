@@ -240,6 +240,28 @@ var {
 }
 .plot-tooltip[hidden] { display: none; }
 
+.plot-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-style: italic;
+  pointer-events: none;
+  animation: plot-loading-pulse 1.1s ease-in-out infinite alternate;
+}
+.plot-loading[hidden] { display: none; }
+.plot-loading.failed { animation: none; font-style: normal; }
+@keyframes plot-loading-pulse {
+  from { opacity: 0.35; }
+  to { opacity: 0.9; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .plot-loading { animation: none; }
+}
+
 .plot-caption {
   font-size: 0.85rem;
   margin-top: 0.2rem;
