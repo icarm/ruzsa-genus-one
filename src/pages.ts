@@ -10,6 +10,7 @@ import type {
   CommentView,
   RecordStatus,
   WitnessListRow,
+  WitnessSort,
   WitnessView,
 } from './store'
 import { COMMENT_MAX } from './store'
@@ -776,14 +777,17 @@ export function activityPage(
   return layout(`Recent activity — ${SITE_NAME}`, body, user)
 }
 
-// The /witnesses table. Sorting is server-side via query params — the column
-// header links carry the target sort state, so the page needs no JS.
-const WITNESS_SORT_KEYS = ['id', 'n', 'size', 'exponent', 'date'] as const
-type WitnessSortKey = (typeof WITNESS_SORT_KEYS)[number]
+// The /witnesses table. Filtering, sorting, and pagination are all
+// server-side via query params — the column headers and page links carry the
+// target state, so the page needs no JS.
+const WITNESS_SORT_KEYS: readonly WitnessSort[] = ['id', 'n', 'size', 'exponent', 'date']
+
+/** Rows per page on /witnesses. */
+export const WITNESSES_PAGE_SIZE = 100
 
 // First-click direction per column: sizes and exponents are most interesting
 // large-first, ids/moduli small-first.
-const WITNESS_SORT_DEFAULT_DIR: Record<WitnessSortKey, 'asc' | 'desc'> = {
+const WITNESS_SORT_DEFAULT_DIR: Record<WitnessSort, 'asc' | 'desc'> = {
   id: 'asc',
   n: 'asc',
   size: 'desc',
@@ -791,13 +795,24 @@ const WITNESS_SORT_DEFAULT_DIR: Record<WitnessSortKey, 'asc' | 'desc'> = {
   date: 'desc',
 }
 
-export function witnessesPage(
-  rows: WitnessListRow[],
-  query: { sort?: string; dir?: string; all?: string; n?: string },
-  user: User | null = null,
-): string {
-  const sort: WitnessSortKey = (WITNESS_SORT_KEYS as readonly string[]).includes(query.sort ?? '')
-    ? (query.sort as WitnessSortKey)
+export interface WitnessesQuery {
+  sort: WitnessSort
+  dir: 'asc' | 'desc'
+  currentOnly: boolean
+  nFilter: number | null
+  page: number // 1-based
+}
+
+/** Normalize raw /witnesses query params into validated page state. */
+export function parseWitnessesQuery(query: {
+  sort?: string
+  dir?: string
+  all?: string
+  n?: string
+  page?: string
+}): WitnessesQuery {
+  const sort: WitnessSort = (WITNESS_SORT_KEYS as readonly string[]).includes(query.sort ?? '')
+    ? (query.sort as WitnessSort)
     : 'exponent'
   const dir: 'asc' | 'desc' =
     query.dir === 'asc' || query.dir === 'desc' ? query.dir : WITNESS_SORT_DEFAULT_DIR[sort]
@@ -805,32 +820,24 @@ export function witnessesPage(
   // Current records only is the default; ?all=1 opts into superseded rows.
   // A modulus filter always shows that modulus's full record history.
   const currentOnly = nFilter === null && query.all !== '1'
+  const page = /^\d+$/.test(query.page ?? '') ? Math.max(1, Number(query.page)) : 1
+  return { sort, dir, currentOnly, nFilter, page }
+}
 
+export function witnessesPage(
+  rows: WitnessListRow[],
+  total: number,
+  { sort, dir, currentOnly, nFilter, page }: WitnessesQuery,
+  user: User | null = null,
+): string {
   const exponent = (w: WitnessListRow) => Math.log(w.size) / Math.log(w.n)
-  const keyValue: Record<WitnessSortKey, (w: WitnessListRow) => number | string> = {
-    id: (w) => w.id,
-    n: (w) => w.n,
-    size: (w) => w.size,
-    exponent,
-    date: (w) => w.created_at,
-  }
-
-  const shown = rows.filter(
-    (r) => (!currentOnly || r.is_current) && (nFilter === null || r.n === nFilter),
-  )
-  const val = keyValue[sort]
-  const flip = dir === 'desc' ? -1 : 1
-  shown.sort((a, b) => {
-    const av = val(a), bv = val(b)
-    const cmp = av < bv ? -1 : av > bv ? 1 : 0
-    return cmp !== 0 ? cmp * flip : a.n - b.n || a.size - b.size
-  })
 
   const href = (
-    s: WitnessSortKey,
+    s: WitnessSort,
     d: 'asc' | 'desc',
     current: boolean,
     n: number | null = nFilter,
+    p = 1, // sort and filter changes reset to the first page
   ): string => {
     const q = new URLSearchParams()
     if (!(s === 'exponent' && d === 'desc')) {
@@ -839,10 +846,11 @@ export function witnessesPage(
     }
     if (n !== null) q.set('n', String(n))
     else if (!current) q.set('all', '1')
+    if (p > 1) q.set('page', String(p))
     const qs = q.toString()
     return '/witnesses' + (qs ? '?' + qs : '')
   }
-  const th = (key: WitnessSortKey, label: string, cls = '', title = ''): string => {
+  const th = (key: WitnessSort, label: string, cls = '', title = ''): string => {
     const active = key === sort
     const target = active ? (dir === 'asc' ? 'desc' : 'asc') : WITNESS_SORT_DEFAULT_DIR[key]
     return `<th${cls ? ` class="${cls}"` : ''}><a class="sort${active ? ` ${dir}` : ''}" href="${href(
@@ -852,7 +860,7 @@ export function witnessesPage(
     )}"${title ? ` title="${title}"` : ''}>${label}</a></th>`
   }
 
-  const trs = shown
+  const trs = rows
     .map(
       (w) => `<tr>
         <td><a href="/witness/${w.id}">#${w.id}</a></td>
@@ -888,6 +896,32 @@ export function witnessesPage(
     (nFilter === null
       ? ''
       : ` &middot; <a href="${href(sort, dir, true, null)}">clear</a>`)
+
+  const totalPages = Math.max(1, Math.ceil(total / WITNESSES_PAGE_SIZE))
+  const from = (page - 1) * WITNESSES_PAGE_SIZE
+  const showing =
+    rows.length === 0
+      ? `no witnesses on page ${page.toLocaleString('en-US')}`
+      : `showing ${(from + 1).toLocaleString('en-US')}&ndash;${(from + rows.length).toLocaleString(
+          'en-US',
+        )} of ${total.toLocaleString('en-US')} witnesses`
+  const pageLink = (label: string, p: number, enabled: boolean): string =>
+    enabled ? `<a href="${href(sort, dir, currentOnly, nFilter, p)}">${label}</a>` : `<span>${label}</span>`
+  const pageNav =
+    totalPages > 1
+      ? `<div class="table-controls muted">${pageLink('&laquo; first', 1, page > 1)} &middot; ${pageLink(
+          '&lsaquo; prev',
+          page - 1,
+          page > 1,
+        )} &nbsp; page ${page.toLocaleString('en-US')} of ${totalPages.toLocaleString(
+          'en-US',
+        )} &nbsp; ${pageLink('next &rsaquo;', page + 1, page < totalPages)} &middot; ${pageLink(
+          'last &raquo;',
+          totalPages,
+          page < totalPages,
+        )}</div>`
+      : ''
+
   const nLabel = nFilter === null ? '' : ` for N = ${nFilter.toLocaleString('en-US')}`
   const heading = (currentOnly ? 'Current record witnesses' : 'All witnesses') + nLabel
   const description = currentOnly
@@ -901,7 +935,7 @@ export function witnessesPage(
       <h2>${heading}</h2>
       <p class="muted">${description} Click a column header to sort; click
       again to reverse.</p>
-      <div class="table-controls muted">showing ${shown.length} of ${rows.length} witnesses
+      <div class="table-controls muted">${showing}
         &nbsp;&middot;&nbsp; ${filterToggle}${modulusFilter}
         &nbsp;&middot;&nbsp; <a href="/database.json" download>Download (JSON) &darr;</a></div>
       <div class="table-scroll">
@@ -918,6 +952,7 @@ export function witnessesPage(
         <tbody>${trs}</tbody>
       </table>
       </div>
+      ${pageNav}
     </section>`
   return layout(`${heading} — ${SITE_NAME}`, body, user)
 }

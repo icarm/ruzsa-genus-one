@@ -17,6 +17,8 @@ import {
   profilePage,
   resultPage,
   witnessDetailPage,
+  parseWitnessesQuery,
+  WITNESSES_PAGE_SIZE,
   witnessesPage,
   type FormState,
 } from './pages'
@@ -32,7 +34,7 @@ import {
   updateSessionUser,
 } from './auth'
 import {
-  allWitnesses,
+  listWitnesses,
   COMMENT_MAX,
   commentaryHistory,
   currentRecords,
@@ -144,20 +146,24 @@ app.get('/database.json', async (c) => {
 
 app.get('/acknowledge', (c) => c.html(acknowledgePage(c.get('user'))))
 
-app.get('/witnesses', async (c) =>
-  c.html(
-    witnessesPage(
-      await allWitnesses(c.env),
-      {
-        sort: c.req.query('sort'),
-        dir: c.req.query('dir'),
-        all: c.req.query('all'),
-        n: c.req.query('n'),
-      },
-      c.get('user'),
-    ),
-  ),
-)
+app.get('/witnesses', async (c) => {
+  const q = parseWitnessesQuery({
+    sort: c.req.query('sort'),
+    dir: c.req.query('dir'),
+    all: c.req.query('all'),
+    n: c.req.query('n'),
+    page: c.req.query('page'),
+  })
+  const { rows, total } = await listWitnesses(c.env, {
+    sort: q.sort,
+    dir: q.dir,
+    currentOnly: q.currentOnly,
+    n: q.nFilter,
+    limit: WITNESSES_PAGE_SIZE,
+    offset: (q.page - 1) * WITNESSES_PAGE_SIZE,
+  })
+  return c.html(witnessesPage(rows, total, q, c.get('user')))
+})
 
 app.get('/witness/:id', async (c) => {
   const id = Number(c.req.param('id'))

@@ -166,17 +166,61 @@ export interface WitnessListRow {
   is_current: number // SQLite boolean: 1 when still the record for n
 }
 
-/** Every record-setting witness ever stored, current and superseded. */
-export function allWitnesses(env: Bindings): Promise<WitnessListRow[]> {
-  return env.DB.prepare(
-    `SELECT w.id, w.n, w.size, w.created_at,
-            u.display_name AS submitter,
-            (w.size = (SELECT MAX(size) FROM witnesses WHERE n = w.n)) AS is_current
-       FROM witnesses w LEFT JOIN users u ON u.id = w.submitter_user_id
-       ORDER BY w.n, w.size`,
-  )
-    .all<WitnessListRow>()
-    .then((r) => r.results)
+/** Sortable columns on the /witnesses listing. */
+export type WitnessSort = 'id' | 'n' | 'size' | 'exponent' | 'date'
+
+// ORDER BY expression per sort key. SQLite log() is base 10, but the base
+// cancels in the quotient, so it orders identically to log|A| / log N.
+const WITNESS_ORDER_BY: Record<WitnessSort, string> = {
+  id: 'w.id',
+  n: 'w.n',
+  size: 'w.size',
+  exponent: '(log(w.size) / log(w.n))',
+  date: 'w.created_at',
+}
+
+export interface WitnessListQuery {
+  sort: WitnessSort
+  dir: 'asc' | 'desc'
+  currentOnly: boolean // only rows that are still the record for their modulus
+  n: number | null // restrict to one modulus
+  limit: number
+  offset: number
+}
+
+/**
+ * One page of the witness listing plus the total row count for the filter.
+ * Filtering, sorting, and pagination happen in SQL so a request never loads
+ * the whole table (tens of thousands of rows and growing).
+ */
+export async function listWitnesses(
+  env: Bindings,
+  q: WitnessListQuery,
+): Promise<{ rows: WitnessListRow[]; total: number }> {
+  const where: string[] = []
+  const binds: number[] = []
+  if (q.n !== null) {
+    where.push('w.n = ?')
+    binds.push(q.n)
+  }
+  if (q.currentOnly) where.push('w.size = (SELECT MAX(size) FROM witnesses WHERE n = w.n)')
+  const whereSql = where.length ? ` WHERE ${where.join(' AND ')}` : ''
+  const order = `${WITNESS_ORDER_BY[q.sort]} ${q.dir === 'asc' ? 'ASC' : 'DESC'}, w.n, w.size`
+  const [count, page] = await env.DB.batch([
+    env.DB.prepare(`SELECT COUNT(*) AS total FROM witnesses w${whereSql}`).bind(...binds),
+    env.DB.prepare(
+      `SELECT w.id, w.n, w.size, w.created_at,
+              u.display_name AS submitter,
+              (w.size = (SELECT MAX(size) FROM witnesses WHERE n = w.n)) AS is_current
+         FROM witnesses w LEFT JOIN users u ON u.id = w.submitter_user_id${whereSql}
+         ORDER BY ${order}
+         LIMIT ? OFFSET ?`,
+    ).bind(...binds, q.limit, q.offset),
+  ])
+  return {
+    rows: page.results as WitnessListRow[],
+    total: (count.results[0] as { total: number }).total,
+  }
 }
 
 /** The current record witness for one modulus, with its element list. */
