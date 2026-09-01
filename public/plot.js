@@ -80,7 +80,7 @@
       var p = pts[i]
       var isHover = p === hover
       ctx.beginPath()
-      ctx.arc(p.x, p.y, isHover ? 5 : p.beats ? 4.5 : 3, 0, 2 * Math.PI)
+      ctx.arc(p.x, p.y, isHover ? 4.5 : p.beats ? 3.5 : 2, 0, 2 * Math.PI)
       ctx.fillStyle = isHover ? HOVER : p.beats ? BEATS : DOT
       ctx.fill()
       if (p.beats) {
