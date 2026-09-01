@@ -94,59 +94,92 @@ app.post('/auth/logout', logout)
 
 app.get('/api', (c) => c.html(apiDocsPage(c.get('user'))))
 
-// A JSON attachment response with a strong ETag over the exact body, so
-// clients can revalidate cheaply. no-cache = clients may store but must
-// revalidate every time; paired with the ETag, a fresh request returns 304
-// (no body) when nothing changed — the body only changes when a record does.
-async function jsonDownload(req: Request, payload: string, filename: string): Promise<Response> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload))
-  const etag =
-    '"' +
-    [...new Uint8Array(digest)]
-      .slice(0, 16)
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('') +
-    '"'
+// Every record witness (current and superseded) as one JSON download.
+//
+// The table is 60k+ rows with full element lists (tens of MB as JSON), so
+// building the payload in memory blew the Worker memory limit. Instead the
+// body is streamed: keyset-paginated batches over the (n, size) index, each
+// row's stored `elements` JSON spliced in verbatim, written through a
+// TransformStream so memory stays at ~one batch regardless of table size.
+//
+// The ETag is derived from (row count, max id) rather than the body bytes —
+// the table is append-only, so this catches every new witness; the one thing
+// it misses is a submitter renaming themselves between records. no-cache =
+// clients may store but must revalidate; a fresh request returns 304 (no
+// body) when nothing changed.
+app.get('/database.json', async (c) => {
+  const meta = await c.env.DB.prepare(
+    'SELECT COUNT(*) AS count, COALESCE(MAX(id), 0) AS maxId FROM witnesses',
+  ).first<{ count: number; maxId: number }>()
+  const count = meta?.count ?? 0
+  const etag = `W/"${count}-${meta?.maxId ?? 0}"`
   const headers = {
     'content-type': 'application/json; charset=UTF-8',
-    'content-disposition': `attachment; filename="${filename}"`,
+    'content-disposition': 'attachment; filename="ruzsa-genus-one-records.json"',
     'cache-control': 'no-cache',
     etag,
   }
-  if (req.headers.get('if-none-match') === etag) return new Response(null, { status: 304, headers })
-  return new Response(payload, { status: 200, headers })
-}
+  if (c.req.header('if-none-match') === etag) return new Response(null, { status: 304, headers })
 
-// Every record witness (current and superseded) as one JSON download.
-app.get('/database.json', async (c) => {
-  const { results } = await c.env.DB.prepare(
-    `SELECT w.id, w.n, w.size, w.ratio, w.elements, w.created_at,
-            u.display_name AS submitter,
-            (w.size = (SELECT MAX(size) FROM witnesses WHERE n = w.n)) AS is_current
-       FROM witnesses w LEFT JOIN users u ON u.id = w.submitter_user_id
-       ORDER BY w.n, w.size`,
-  ).all<{
-    id: number
-    n: number
-    size: number
-    ratio: number
-    elements: string
-    created_at: string
-    submitter: string | null
-    is_current: number
-  }>()
-  const witnesses = results.map((r) => ({
-    id: r.id,
-    n: r.n,
-    size: r.size,
-    ratio: r.ratio,
-    elements: JSON.parse(r.elements) as number[],
-    submitter: r.submitter,
-    created_at: r.created_at,
-    current: !!r.is_current,
-  }))
-  const payload = JSON.stringify({ count: witnesses.length, witnesses }, null, 2)
-  return jsonDownload(c.req.raw, payload, 'ruzsa-genus-one-records.json')
+  const db = c.env.DB
+  const { readable, writable } = new TransformStream<Uint8Array>()
+  c.executionCtx.waitUntil(
+    (async () => {
+      const writer = writable.getWriter()
+      const encoder = new TextEncoder()
+      try {
+        await writer.write(encoder.encode(`{"count":${count},"witnesses":[`))
+        // Keyset pagination in (n, size) order — the unique index the table
+        // already has — so each batch is an indexed range scan.
+        type DumpRow = {
+          id: number
+          n: number
+          size: number
+          ratio: number
+          elements: string
+          created_at: string
+          submitter: string | null
+          is_current: number
+        }
+        let lastN = -1
+        let lastSize = -1
+        let first = true
+        for (;;) {
+          const { results }: { results: DumpRow[] } = await db
+            .prepare(
+              `SELECT w.id, w.n, w.size, w.ratio, w.elements, w.created_at,
+                      u.display_name AS submitter,
+                      (w.size = (SELECT MAX(size) FROM witnesses WHERE n = w.n)) AS is_current
+                 FROM witnesses w LEFT JOIN users u ON u.id = w.submitter_user_id
+                WHERE (w.n, w.size) > (?, ?)
+                ORDER BY w.n, w.size LIMIT 500`,
+            )
+            .bind(lastN, lastSize)
+            .all<DumpRow>()
+          if (results.length === 0) break
+          let chunk = ''
+          for (const r of results) {
+            // r.elements is already JSON array text; splice it in verbatim.
+            chunk +=
+              (first ? '' : ',') +
+              `{"id":${r.id},"n":${r.n},"size":${r.size},"ratio":${r.ratio},` +
+              `"elements":${r.elements},"submitter":${JSON.stringify(r.submitter)},` +
+              `"created_at":${JSON.stringify(r.created_at)},"current":${r.is_current ? 'true' : 'false'}}`
+            first = false
+          }
+          await writer.write(encoder.encode(chunk))
+          lastN = results[results.length - 1].n
+          lastSize = results[results.length - 1].size
+        }
+        await writer.write(encoder.encode(']}'))
+        await writer.close()
+      } catch (err) {
+        console.error('database.json stream failed:', err)
+        await writer.abort(err)
+      }
+    })(),
+  )
+  return new Response(readable, { status: 200, headers })
 })
 
 app.get('/acknowledge', (c) => c.html(acknowledgePage(c.get('user'))))
