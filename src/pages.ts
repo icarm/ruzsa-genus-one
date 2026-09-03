@@ -540,7 +540,8 @@ export function apiDocsPage(user: User | null = null): string {
       )} characters) becomes the new witness page&rsquo;s commentary when &mdash; and only
       when &mdash; the submission sets a record; the response then carries
       <code>commentaryApplied</code>. It can be edited later on the witness page, with full
-      edit history kept.</p>
+      edit history kept. Commentary is plain text, except that <code>witness#123</code>
+      becomes a link to that witness&rsquo;s page.</p>
       <pre><code>${escapeHtml(verifyResp)}</code></pre>
       <p>An invalid set instead gets <code>valid: false</code> and one concrete nontrivial solution
       (no <code>record</code> field):</p>
@@ -595,7 +596,7 @@ function commentarySection(witnessId: number, comment: CommentView | null, user:
         <summary>edit</summary>
         <form method="post" action="/witness/${witnessId}/commentary">
           <textarea name="content" rows="6" maxlength="${COMMENT_MAX}">${escapeHtml(comment?.content ?? '')}</textarea>
-          <div><button type="submit">save</button> <span class="muted">submit empty to clear</span></div>
+          <div><button type="submit">save</button> <span class="muted">plain text; <code>witness#123</code> links to that witness &middot; submit empty to clear</span></div>
         </form>
       </details>`
     : `<p class="muted"><a href="/auth/github">Log in</a> to add commentary.</p>`

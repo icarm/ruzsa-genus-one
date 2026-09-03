@@ -173,6 +173,7 @@ function buildServer(env: Bindings, props: McpProps, ctx: ExecutionContext): Mcp
           .describe(
             `Optional public commentary for the new witness page — e.g. how the set was found. ` +
               `Applied only when the submission sets a record; editable later on the website. ` +
+              `Plain text, except that "witness#123" is rendered as a link to that witness. ` +
               `At most ${COMMENT_MAX} characters.`,
           ),
       }),
