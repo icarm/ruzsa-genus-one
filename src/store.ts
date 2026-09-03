@@ -172,25 +172,28 @@ export interface LeaderboardRow {
 
 /**
  * Every submitter with at least one record-setting witness, ranked by records
- * currently held, then best exponent, then total submitted. One grouped query;
- * the correlated subqueries pick out the witness that achieved the best exponent.
- * (`IS` rather than `=` so the anonymous NULL group matches itself.)
+ * currently held, then best exponent, then total submitted.
+ *
+ * Two single-pass GROUP BYs joined on submitter. The second relies on SQLite's
+ * documented rule that with exactly one MAX() aggregate, bare columns (id, n,
+ * size) come from the row that achieved the max — so the best witness is found
+ * without a per-row correlated subquery. (An earlier version used one and was
+ * quadratic: minutes at 120k rows, which timed out the Worker.) `IS` rather
+ * than `=` so the anonymous NULL group joins to itself.
  */
 export function leaderboard(env: Bindings): Promise<LeaderboardRow[]> {
   return env.DB.prepare(
-    `SELECT w.submitter_user_id AS user_id, u.display_name,
-            COUNT(*) AS submitted,
-            COALESCE(SUM(w.size = (SELECT MAX(size) FROM witnesses WHERE n = w.n)), 0) AS held,
-            MAX(log(w.size) / log(w.n)) AS best_exponent,
-            b.id AS best_id, b.n AS best_n, b.size AS best_size,
-            MAX(w.created_at) AS last_submitted
-       FROM witnesses w
-       LEFT JOIN users u ON u.id = w.submitter_user_id
-       JOIN witnesses b ON b.id = (SELECT id FROM witnesses x
-                                    WHERE x.submitter_user_id IS w.submitter_user_id
-                                    ORDER BY log(x.size) / log(x.n) DESC, x.n LIMIT 1)
-       GROUP BY w.submitter_user_id
-       ORDER BY held DESC, best_exponent DESC, submitted DESC, last_submitted DESC`,
+    `SELECT a.user_id, u.display_name, a.submitted, a.held, a.last_submitted,
+            b.best_exponent, b.best_id, b.best_n, b.best_size
+       FROM (SELECT w.submitter_user_id AS user_id, COUNT(*) AS submitted,
+                    COALESCE(SUM(w.size = (SELECT MAX(size) FROM witnesses WHERE n = w.n)), 0) AS held,
+                    MAX(w.created_at) AS last_submitted
+               FROM witnesses w GROUP BY w.submitter_user_id) a
+       JOIN (SELECT submitter_user_id AS user_id, MAX(log(size) / log(n)) AS best_exponent,
+                    id AS best_id, n AS best_n, size AS best_size
+               FROM witnesses GROUP BY submitter_user_id) b ON b.user_id IS a.user_id
+       LEFT JOIN users u ON u.id = a.user_id
+       ORDER BY a.held DESC, b.best_exponent DESC, a.submitted DESC, a.last_submitted DESC`,
   )
     .all<LeaderboardRow>()
     .then((r) => r.results)
