@@ -43,7 +43,8 @@ import {
   postCommentary,
   recentActivity,
   recordWitness,
-  userWitnesses,
+  userWitnessStats,
+  userDisplayName,
   type RecordStatus,
 } from './store'
 import {
@@ -190,17 +191,22 @@ app.get('/witnesses', async (c) => {
     dir: c.req.query('dir'),
     all: c.req.query('all'),
     n: c.req.query('n'),
+    user: c.req.query('user'),
     page: c.req.query('page'),
   })
-  const { rows, total } = await listWitnesses(c.env, {
-    sort: q.sort,
-    dir: q.dir,
-    currentOnly: q.currentOnly,
-    n: q.nFilter,
-    limit: WITNESSES_PAGE_SIZE,
-    offset: (q.page - 1) * WITNESSES_PAGE_SIZE,
-  })
-  return c.html(witnessesPage(rows, total, q, c.get('user')))
+  const [{ rows, total }, submitterName] = await Promise.all([
+    listWitnesses(c.env, {
+      sort: q.sort,
+      dir: q.dir,
+      currentOnly: q.currentOnly,
+      n: q.nFilter,
+      submitter: q.userFilter,
+      limit: WITNESSES_PAGE_SIZE,
+      offset: (q.page - 1) * WITNESSES_PAGE_SIZE,
+    }),
+    q.userFilter === null ? null : userDisplayName(c.env, q.userFilter),
+  ])
+  return c.html(witnessesPage(rows, total, q, c.get('user'), submitterName))
 })
 
 app.get('/witness/:id', async (c) => {
@@ -252,7 +258,7 @@ app.get('/profile', async (c) => {
   if (!user) return c.redirect('/auth/github?return_to=/profile', 302)
   const [tokens, witnesses] = await Promise.all([
     listTokens(c.env, user.id),
-    userWitnesses(c.env, user.id),
+    userWitnessStats(c.env, user.id),
   ])
   return c.html(profilePage(user, tokens, null, witnesses))
 })
@@ -265,7 +271,7 @@ app.post('/profile/tokens', async (c) => {
   const newToken = await generateApiToken(c.env, user.id, name)
   const [tokens, witnesses] = await Promise.all([
     listTokens(c.env, user.id),
-    userWitnesses(c.env, user.id),
+    userWitnessStats(c.env, user.id),
   ])
   return c.html(profilePage(user, tokens, newToken, witnesses))
 })

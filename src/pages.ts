@@ -9,6 +9,7 @@ import type {
   ActivityItem,
   CommentView,
   RecordStatus,
+  UserWitnessStats,
   WitnessListRow,
   WitnessSort,
   WitnessView,
@@ -30,14 +31,6 @@ export interface TokenRow {
   created_at: string
   last_used_at: string | null
   revoked_at: string | null
-}
-
-export interface UserWitnessRow {
-  id: number
-  n: number
-  size: number
-  created_at: string
-  is_current: number // SQLite boolean: 1 when still the record for n
 }
 
 export function escapeHtml(s: unknown): string {
@@ -415,32 +408,23 @@ export function resultPage(
   return layout(`Result — ${SITE_NAME}`, body, user)
 }
 
-function userWitnessesSection(rows: UserWitnessRow[]): string {
-  const heading = `<h3>Your record witnesses <span class="muted">(${rows.length})</span></h3>`
-  if (rows.length === 0) {
+function userWitnessesSection(userId: number, { submitted, held }: UserWitnessStats): string {
+  const heading = '<h3>Your record witnesses</h3>'
+  if (submitted === 0) {
     return `<section class="my-witnesses">
       ${heading}
-      <p class="muted">None yet &mdash; a witness is saved here when it sets the record for its modulus. <a href="/">Submit one &rarr;</a></p>
+      <p class="muted">None yet &mdash; a witness is saved when it sets the record for its modulus. <a href="/">Submit one &rarr;</a></p>
     </section>`
   }
-  const trs = rows
-    .map(
-      (w) => `<tr>
-        <td class="num"><a href="/witness/${w.id}">${w.n.toLocaleString('en-US')}</a></td>
-        <td class="num">${w.size.toLocaleString('en-US')}</td>
-        <td class="num">${(Math.log(w.size) / Math.log(w.n)).toFixed(4)}</td>
-        <td>${escapeHtml(w.created_at)}</td>
-        <td>${w.is_current ? 'current record' : '<span class="muted">superseded</span>'}</td>
-      </tr>`,
-    )
-    .join('\n')
+  const fmt = (k: number) => k.toLocaleString('en-US')
+  const mine = (all: boolean) => `/witnesses?user=${userId}${all ? '&all=1' : ''}`
   return `<section class="my-witnesses">
       ${heading}
-      <p class="muted">Witnesses that set the record for their modulus when you submitted them, highest exponent first.</p>
-      <table class="tokens-table">
-        <thead><tr><th class="num">N</th><th class="num">|A|</th><th class="num" title="exponent log |A| / log N">exponent</th><th>Submitted</th><th>Status</th></tr></thead>
-        <tbody>${trs}</tbody>
-      </table>
+      <dl class="stats">
+        <div><dt>records held</dt><dd><a href="${mine(false)}" title="your witnesses that are still the record for their modulus">${fmt(held)}</a></dd></div>
+        <div><dt>records submitted</dt><dd><a href="${mine(true)}" title="every witness of yours that set the record when submitted">${fmt(submitted)}</a></dd></div>
+      </dl>
+      <p class="muted">A witness counts as submitted when it set the record for its modulus; it is held until a larger set beats it.</p>
     </section>`
 }
 
@@ -448,7 +432,7 @@ export function profilePage(
   user: User,
   tokens: TokenRow[],
   newToken: { token: string; prefix: string } | null,
-  witnesses: UserWitnessRow[] = [],
+  witnesses: UserWitnessStats = { submitted: 0, held: 0 },
 ): string {
   const newTokenBlock = newToken
     ? `<div class="new-token">
@@ -504,7 +488,7 @@ export function profilePage(
           <button type="submit">Generate new token</button>
         </form>
       </section>
-      ${userWitnessesSection(witnesses)}
+      ${userWitnessesSection(user.id, witnesses)}
     </section>`
   return layout(`Profile — ${SITE_NAME}`, body, user)
 }
@@ -794,6 +778,7 @@ export interface WitnessesQuery {
   dir: 'asc' | 'desc'
   currentOnly: boolean
   nFilter: number | null
+  userFilter: number | null // submitter user id
   page: number // 1-based
 }
 
@@ -803,6 +788,7 @@ export function parseWitnessesQuery(query: {
   dir?: string
   all?: string
   n?: string
+  user?: string
   page?: string
 }): WitnessesQuery {
   const sort: WitnessSort = (WITNESS_SORT_KEYS as readonly string[]).includes(query.sort ?? '')
@@ -811,18 +797,20 @@ export function parseWitnessesQuery(query: {
   const dir: 'asc' | 'desc' =
     query.dir === 'asc' || query.dir === 'desc' ? query.dir : WITNESS_SORT_DEFAULT_DIR[sort]
   const nFilter = /^\d+$/.test(query.n ?? '') ? Number(query.n) : null
+  const userFilter = /^\d+$/.test(query.user ?? '') ? Number(query.user) : null
   // Current records only is the default; ?all=1 opts into superseded rows.
   // A modulus filter always shows that modulus's full record history.
   const currentOnly = nFilter === null && query.all !== '1'
   const page = /^\d+$/.test(query.page ?? '') ? Math.max(1, Number(query.page)) : 1
-  return { sort, dir, currentOnly, nFilter, page }
+  return { sort, dir, currentOnly, nFilter, userFilter, page }
 }
 
 export function witnessesPage(
   rows: WitnessListRow[],
   total: number,
-  { sort, dir, currentOnly, nFilter, page }: WitnessesQuery,
+  { sort, dir, currentOnly, nFilter, userFilter, page }: WitnessesQuery,
   user: User | null = null,
+  submitterName: string | null = null, // display name for userFilter, when it names a real user
 ): string {
   const exponent = (w: WitnessListRow) => Math.log(w.size) / Math.log(w.n)
 
@@ -832,6 +820,7 @@ export function witnessesPage(
     current: boolean,
     n: number | null = nFilter,
     p = 1, // sort and filter changes reset to the first page
+    u: number | null = userFilter,
   ): string => {
     const q = new URLSearchParams()
     if (!(s === 'exponent' && d === 'desc')) {
@@ -840,6 +829,7 @@ export function witnessesPage(
     }
     if (n !== null) q.set('n', String(n))
     else if (!current) q.set('all', '1')
+    if (u !== null) q.set('user', String(u))
     if (p > 1) q.set('page', String(p))
     const qs = q.toString()
     return '/witnesses' + (qs ? '?' + qs : '')
@@ -879,9 +869,10 @@ export function witnessesPage(
   // The modulus filter is a plain GET form (the page has no JS); hidden inputs
   // mirror href() so submitting preserves the sort state.
   const hiddenState =
-    sort === 'exponent' && dir === 'desc'
+    (sort === 'exponent' && dir === 'desc'
       ? ''
-      : `<input type="hidden" name="sort" value="${sort}"><input type="hidden" name="dir" value="${dir}">`
+      : `<input type="hidden" name="sort" value="${sort}"><input type="hidden" name="dir" value="${dir}">`) +
+    (userFilter === null ? '' : `<input type="hidden" name="user" value="${userFilter}">`)
   const modulusFilter =
     `<form class="inline-form modulus-filter" method="get" action="/witnesses">${hiddenState}` +
     `<label>N&nbsp;=&nbsp;<input name="n" type="number" min="2" max="50000" step="1" ` +
@@ -890,6 +881,14 @@ export function witnessesPage(
     (nFilter === null
       ? ''
       : ` &middot; <a href="${href(sort, dir, true, null)}">clear</a>`)
+  // The submitter filter is only reachable by link (from a profile page), so it
+  // shows as a label with a way out rather than a form.
+  const submitterFilter =
+    userFilter === null
+      ? ''
+      : ` &nbsp;&middot;&nbsp; submitted by <strong>${escapeHtml(
+          submitterName ?? `user #${userFilter}`,
+        )}</strong> &middot; <a href="${href(sort, dir, currentOnly, nFilter, 1, null)}">all submitters</a>`
 
   const totalPages = Math.max(1, Math.ceil(total / WITNESSES_PAGE_SIZE))
   const from = (page - 1) * WITNESSES_PAGE_SIZE
@@ -917,11 +916,16 @@ export function witnessesPage(
       : ''
 
   const nLabel = nFilter === null ? '' : ` for N = ${nFilter.toLocaleString('en-US')}`
-  const heading = (currentOnly ? 'Current record witnesses' : 'All witnesses') + nLabel
+  const byLabel =
+    userFilter === null ? '' : ` submitted by ${escapeHtml(submitterName ?? `user #${userFilter}`)}`
+  const heading = (currentOnly ? 'Current record witnesses' : 'All witnesses') + nLabel + byLabel
   const description = currentOnly
-    ? 'The largest known witness for each modulus.'
-    : `Every record-setting witness ever submitted${nLabel ? ' for this modulus' : ''}; a
-      superseded row was the record${nLabel ? '' : ' for its modulus'} until a larger set beat it.`
+    ? userFilter === null
+      ? 'The largest known witness for each modulus.'
+      : 'Witnesses from this submitter that are still the largest known for their modulus.'
+    : `Every record-setting witness ever submitted${nLabel ? ' for this modulus' : ''}${
+        userFilter === null ? '' : ' by this submitter'
+      }; a superseded row was the record${nLabel ? '' : ' for its modulus'} until a larger set beat it.`
 
   const body = `
     <section class="prose">
@@ -930,7 +934,7 @@ export function witnessesPage(
       <p class="muted">${description} Click a column header to sort; click
       again to reverse.</p>
       <div class="table-controls muted">${showing}
-        &nbsp;&middot;&nbsp; ${filterToggle}${modulusFilter}
+        &nbsp;&middot;&nbsp; ${filterToggle}${modulusFilter}${submitterFilter}
         &nbsp;&middot;&nbsp; <a href="/database.json" download>Download (JSON) &darr;</a></div>
       <div class="table-scroll">
       <table class="tokens-table witnesses-table">

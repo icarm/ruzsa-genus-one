@@ -3,7 +3,7 @@
 // modulus survives being beaten.
 
 import type { Bindings } from './auth'
-import type { RecordPoint, TokenRow, UserWitnessRow } from './pages'
+import type { RecordPoint, TokenRow } from './pages'
 import type { VerifyResult } from './verify'
 
 export const COMMENT_MAX = 4000
@@ -140,20 +140,29 @@ export function listTokens(env: Bindings, userId: number): Promise<TokenRow[]> {
     .then((r) => r.results)
 }
 
-/** The user's record-setting witnesses, best exponent first, flagged when still the record. */
-export function userWitnesses(env: Bindings, userId: number): Promise<UserWitnessRow[]> {
+/** Summary of one user's submissions: rows they set and how many still stand. */
+export interface UserWitnessStats {
+  submitted: number // record-setting witnesses attributed to the user
+  held: number // of those, how many are still the record for their modulus
+}
+
+export function userWitnessStats(env: Bindings, userId: number): Promise<UserWitnessStats> {
   return env.DB.prepare(
-    `SELECT w.id, w.n, w.size, w.created_at,
-            (w.size = (SELECT MAX(size) FROM witnesses WHERE n = w.n)) AS is_current
+    `SELECT COUNT(*) AS submitted,
+            COALESCE(SUM(w.size = (SELECT MAX(size) FROM witnesses WHERE n = w.n)), 0) AS held
        FROM witnesses w WHERE w.submitter_user_id = ?`,
   )
     .bind(userId)
-    .all<UserWitnessRow>()
-    .then((r) =>
-      r.results.sort(
-        (a, b) => Math.log(b.size) / Math.log(b.n) - Math.log(a.size) / Math.log(a.n) || a.n - b.n,
-      ),
-    )
+    .first<UserWitnessStats>()
+    .then((r) => r ?? { submitted: 0, held: 0 })
+}
+
+/** Display name for the submitter filter heading on /witnesses; null if no such user. */
+export function userDisplayName(env: Bindings, userId: number): Promise<string | null> {
+  return env.DB.prepare('SELECT display_name FROM users WHERE id = ?')
+    .bind(userId)
+    .first<{ display_name: string | null }>()
+    .then((r) => (r ? r.display_name ?? '(unnamed)' : null))
 }
 
 /** One row on the /witnesses listing page. */
@@ -184,6 +193,7 @@ export interface WitnessListQuery {
   dir: 'asc' | 'desc'
   currentOnly: boolean // only rows that are still the record for their modulus
   n: number | null // restrict to one modulus
+  submitter: number | null // restrict to one user's submissions
   limit: number
   offset: number
 }
@@ -202,6 +212,10 @@ export async function listWitnesses(
   if (q.n !== null) {
     where.push('w.n = ?')
     binds.push(q.n)
+  }
+  if (q.submitter !== null) {
+    where.push('w.submitter_user_id = ?')
+    binds.push(q.submitter)
   }
   if (q.currentOnly) where.push('w.size = (SELECT MAX(size) FROM witnesses WHERE n = w.n)')
   const whereSql = where.length ? ` WHERE ${where.join(' AND ')}` : ''
