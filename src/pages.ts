@@ -987,16 +987,13 @@ export function leaderboardPage(rows: LeaderboardRow[], user: User | null = null
     <section class="prose">
       <p class="page-nav"><a href="/">&larr; home</a> &nbsp;&middot;&nbsp; <a href="/witnesses">all witnesses</a></p>
       <h2>Leaderboard</h2>
-      <p class="muted">Submitters ranked by how many moduli they currently hold the record for;
-      ties break on best exponent. A witness counts as submitted when it set the record for its
-      modulus, and as held until a larger set beats it.</p>
       <div class="table-scroll">
       <table class="tokens-table witnesses-table">
         <thead><tr>
           <th class="num">#</th>
           <th>submitter</th>
-          <th class="num">records held</th>
-          <th class="num">submitted</th>
+          <th class="num" title="moduli for which this submitter's witness is still the largest known">records held</th>
+          <th class="num" title="witnesses that set the record for their modulus when submitted">submitted</th>
           <th class="num" title="best exponent log |A| / log N">best exponent</th>
           <th>last submitted</th>
         </tr></thead>
