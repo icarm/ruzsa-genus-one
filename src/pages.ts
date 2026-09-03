@@ -8,6 +8,7 @@ import {
 import type {
   ActivityItem,
   CommentView,
+  LeaderboardRow,
   RecordStatus,
   UserWitnessStats,
   WitnessListRow,
@@ -264,6 +265,7 @@ function recordsSection(plot: PlotKind): string {
     <p class="muted plot-caption">Each dot is the largest known witness for its modulus.
     A dot above the dashed line beats &radic;<span class="sqrt">N</span>.</p>
     <p class="plot-caption"><a href="/witnesses">Browse witnesses &rarr;</a> &nbsp;&middot;&nbsp;
+    <a href="/leaderboard">Leaderboard &rarr;</a> &nbsp;&middot;&nbsp;
     <a href="/recent">Recent activity &rarr;</a> &nbsp;&middot;&nbsp;
     <a class="external nowrap" href="https://icarm.zulipchat.com/#narrow/channel/519875-general/topic/Ruzsa.20Genus.20One/near/614443028">Discuss on Zulip</a></p>
     <p class="plot-caption"><a class="nowrap" href="/database.json" download>Download all records (JSON) &darr;</a></p>
@@ -424,7 +426,7 @@ function userWitnessesSection(userId: number, { submitted, held }: UserWitnessSt
         <div><dt>records held</dt><dd><a href="${mine(false)}" title="your witnesses that are still the record for their modulus">${fmt(held)}</a></dd></div>
         <div><dt>records submitted</dt><dd><a href="${mine(true)}" title="every witness of yours that set the record when submitted">${fmt(submitted)}</a></dd></div>
       </dl>
-      <p class="muted">A witness counts as submitted when it set the record for its modulus; it is held until a larger set beats it.</p>
+      <p class="muted">A witness counts as submitted when it set the record for its modulus; it is held until a larger set beats it. See how you rank on the <a href="/leaderboard">leaderboard</a>.</p>
     </section>`
 }
 
@@ -936,6 +938,7 @@ export function witnessesPage(
       again to reverse.</p>
       <div class="table-controls muted">${showing}
         &nbsp;&middot;&nbsp; ${filterToggle}${modulusFilter}${submitterFilter}
+        &nbsp;&middot;&nbsp; <a href="/leaderboard">leaderboard</a>
         &nbsp;&middot;&nbsp; <a href="/database.json" download>Download (JSON) &darr;</a></div>
       <div class="table-scroll">
       <table class="tokens-table witnesses-table">
@@ -954,6 +957,54 @@ export function witnessesPage(
       ${pageNav}
     </section>`
   return layout(`${heading} — ${SITE_NAME}`, body, user)
+}
+
+// /leaderboard: submitters ranked by records currently held. Anonymous
+// submissions are one unranked line at the bottom so the counts still add up
+// to the witnesses table.
+export function leaderboardPage(rows: LeaderboardRow[], user: User | null = null): string {
+  const fmt = (k: number) => k.toLocaleString('en-US')
+  const tr = (r: LeaderboardRow, rank: number | null): string => {
+    const who =
+      r.user_id === null
+        ? '<span class="muted">anonymous</span>'
+        : `<a href="/witnesses?user=${r.user_id}">${escapeHtml(r.display_name ?? `user #${r.user_id}`)}</a>`
+    const count = (k: number, all: boolean) =>
+      r.user_id === null ? fmt(k) : `<a href="/witnesses?user=${r.user_id}${all ? '&all=1' : ''}">${fmt(k)}</a>`
+    return `<tr>
+        <td class="num">${rank === null ? '<span class="muted">&mdash;</span>' : fmt(rank)}</td>
+        <td>${who}</td>
+        <td class="num">${count(r.held, false)}</td>
+        <td class="num">${count(r.submitted, true)}</td>
+        <td class="num"><a href="/witness/${r.best_id}" title="N = ${fmt(r.best_n)}, |A| = ${fmt(r.best_size)}">${r.best_exponent.toFixed(4)}</a></td>
+        <td>${escapeHtml(r.last_submitted)}</td>
+      </tr>`
+  }
+  const ranked = rows.filter((r) => r.user_id !== null)
+  const anonymous = rows.filter((r) => r.user_id === null)
+  const trs = ranked.map((r, i) => tr(r, i + 1)).concat(anonymous.map((r) => tr(r, null))).join('\n')
+  const body = `
+    <section class="prose">
+      <p class="page-nav"><a href="/">&larr; home</a> &nbsp;&middot;&nbsp; <a href="/witnesses">all witnesses</a></p>
+      <h2>Leaderboard</h2>
+      <p class="muted">Submitters ranked by how many moduli they currently hold the record for;
+      ties break on best exponent. A witness counts as submitted when it set the record for its
+      modulus, and as held until a larger set beats it.</p>
+      <div class="table-scroll">
+      <table class="tokens-table witnesses-table">
+        <thead><tr>
+          <th class="num">#</th>
+          <th>submitter</th>
+          <th class="num">records held</th>
+          <th class="num">submitted</th>
+          <th class="num" title="best exponent log |A| / log N">best exponent</th>
+          <th>last submitted</th>
+        </tr></thead>
+        <tbody>${trs.length ? trs : '<tr><td colspan="6" class="muted">No witnesses yet.</td></tr>'}</tbody>
+      </table>
+      </div>
+    </section>`
+  return layout(`Leaderboard — ${SITE_NAME}`, body, user)
 }
 
 export function acknowledgePage(user: User | null = null): string {

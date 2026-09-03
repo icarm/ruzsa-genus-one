@@ -12,6 +12,7 @@ import {
   commentaryHistoryPage,
   consentPage,
   landingPage,
+  leaderboardPage,
   mcpInfoPage,
   notFoundPage,
   profilePage,
@@ -38,6 +39,7 @@ import {
   COMMENT_MAX,
   commentaryHistory,
   currentRecords,
+  leaderboard,
   listTokens,
   loadWitness,
   postCommentary,
@@ -246,6 +248,8 @@ app.get('/witness/:id/commentary-history', async (c) => {
     commentaryHistoryPage(loaded.witness, await commentaryHistory(c.env, id), c.get('user')),
   )
 })
+
+app.get('/leaderboard', async (c) => c.html(leaderboardPage(await leaderboard(c.env), c.get('user'))))
 
 app.get('/recent', async (c) => {
   const p = Math.max(0, Math.floor(Number(c.req.query('p')) || 0))

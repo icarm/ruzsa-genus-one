@@ -157,6 +157,45 @@ export function userWitnessStats(env: Bindings, userId: number): Promise<UserWit
     .then((r) => r ?? { submitted: 0, held: 0 })
 }
 
+/** One submitter's line on /leaderboard. */
+export interface LeaderboardRow {
+  user_id: number | null // null groups the anonymous submissions
+  display_name: string | null
+  submitted: number // record-setting witnesses attributed to the submitter
+  held: number // of those, how many are still the record for their modulus
+  best_exponent: number // max of log|A| / log N over their witnesses
+  best_id: number // witness id achieving best_exponent
+  best_n: number
+  best_size: number
+  last_submitted: string
+}
+
+/**
+ * Every submitter with at least one record-setting witness, ranked by records
+ * currently held, then best exponent, then total submitted. One grouped query;
+ * the correlated subqueries pick out the witness that achieved the best exponent.
+ * (`IS` rather than `=` so the anonymous NULL group matches itself.)
+ */
+export function leaderboard(env: Bindings): Promise<LeaderboardRow[]> {
+  return env.DB.prepare(
+    `SELECT w.submitter_user_id AS user_id, u.display_name,
+            COUNT(*) AS submitted,
+            COALESCE(SUM(w.size = (SELECT MAX(size) FROM witnesses WHERE n = w.n)), 0) AS held,
+            MAX(log(w.size) / log(w.n)) AS best_exponent,
+            b.id AS best_id, b.n AS best_n, b.size AS best_size,
+            MAX(w.created_at) AS last_submitted
+       FROM witnesses w
+       LEFT JOIN users u ON u.id = w.submitter_user_id
+       JOIN witnesses b ON b.id = (SELECT id FROM witnesses x
+                                    WHERE x.submitter_user_id IS w.submitter_user_id
+                                    ORDER BY log(x.size) / log(x.n) DESC, x.n LIMIT 1)
+       GROUP BY w.submitter_user_id
+       ORDER BY held DESC, best_exponent DESC, submitted DESC, last_submitted DESC`,
+  )
+    .all<LeaderboardRow>()
+    .then((r) => r.results)
+}
+
 /** Display name for the submitter filter heading on /witnesses; null if no such user. */
 export function userDisplayName(env: Bindings, userId: number): Promise<string | null> {
   return env.DB.prepare('SELECT display_name FROM users WHERE id = ?')
