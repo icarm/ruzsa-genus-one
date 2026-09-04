@@ -553,8 +553,10 @@ export function apiDocsPage(user: User | null = null): string {
       <p>All record witnesses as one JSON download: <code>{ count, witnesses }</code>, each with
       its modulus <code>n</code>, <code>size</code>, <code>ratio</code>, full <code>elements</code>
       list, <code>submitter</code>, <code>created_at</code>, and <code>current</code> (false for
-      superseded records, which are kept as history). No auth required. Responses carry a strong
-      <code>ETag</code>; conditional requests return <code>304</code> when nothing has changed.</p>
+      superseded records, which are kept as history). No auth required. Responses carry a weak
+      <code>ETag</code> (the body is compressed at the edge, which rules out a strong one);
+      conditional requests with <code>If-None-Match</code> return <code>304</code> when nothing
+      has changed.</p>
 
       <h3>MCP server: <code>/mcp</code></h3>
       <p>The site is also a remote <a class="external"

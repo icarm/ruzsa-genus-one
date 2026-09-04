@@ -99,23 +99,39 @@ app.get('/api', (c) => c.html(apiDocsPage(c.get('user'))))
 
 // Every record witness (current and superseded) as one JSON download.
 //
-// The table is 60k+ rows with full element lists (tens of MB as JSON), so
+// The table is 100k+ rows with full element lists (tens of MB as JSON), so
 // building the payload in memory blew the Worker memory limit. Instead the
 // body is streamed: keyset-paginated batches over the (n, size) index, each
 // row's stored `elements` JSON spliced in verbatim, written through a
 // TransformStream so memory stays at ~one batch regardless of table size.
+// Download time is dominated by the number of sequential D1 round trips, not
+// by bytes on the wire (Cloudflare compresses ~4.5x), hence the large batch.
 //
-// The ETag is derived from (row count, max id) rather than the body bytes —
-// the table is append-only, so this catches every new witness; the one thing
-// it misses is a submitter renaming themselves between records. no-cache =
-// clients may store but must revalidate; a fresh request returns 304 (no
-// body) when nothing changed.
+// The ETag is derived from (row count, max id, hash of submitter names)
+// rather than the body bytes. The table is append-only, so count+maxId
+// catches every new witness; the names hash catches a submitter renaming
+// themselves. It is deliberately weak: Cloudflare compresses the response at
+// the edge and downgrades strong validators on compressed bodies anyway.
+// no-cache = clients may store but must revalidate; a fresh request returns
+// 304 (no body) when nothing changed.
+const DUMP_BATCH = 5000
+
 app.get('/database.json', async (c) => {
-  const meta = await c.env.DB.prepare(
-    'SELECT COUNT(*) AS count, COALESCE(MAX(id), 0) AS maxId FROM witnesses',
-  ).first<{ count: number; maxId: number }>()
-  const count = meta?.count ?? 0
-  const etag = `W/"${count}-${meta?.maxId ?? 0}"`
+  const [meta, names] = await c.env.DB.batch([
+    c.env.DB.prepare('SELECT COUNT(*) AS count, COALESCE(MAX(id), 0) AS maxId FROM witnesses'),
+    c.env.DB.prepare(
+      `SELECT GROUP_CONCAT(id || ':' || COALESCE(display_name, ''), char(10)) AS names
+         FROM (SELECT id, display_name FROM users ORDER BY id)`,
+    ),
+  ])
+  const m = meta.results[0] as { count: number; maxId: number } | undefined
+  const count = m?.count ?? 0
+  const nameText = ((names.results[0] as { names: string | null } | undefined)?.names ?? '')
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(nameText))
+  const nameHash = [...new Uint8Array(digest).slice(0, 6)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+  const etag = `W/"${count}-${m?.maxId ?? 0}-${nameHash}"`
   const headers = {
     'content-type': 'application/json; charset=UTF-8',
     'content-disposition': 'attachment; filename="ruzsa-genus-one-records.json"',
@@ -132,8 +148,6 @@ app.get('/database.json', async (c) => {
       const encoder = new TextEncoder()
       try {
         await writer.write(encoder.encode(`{"count":${count},"witnesses":[`))
-        // Keyset pagination in (n, size) order — the unique index the table
-        // already has — so each batch is an indexed range scan.
         type DumpRow = {
           id: number
           n: number
@@ -142,38 +156,48 @@ app.get('/database.json', async (c) => {
           elements: string
           created_at: string
           submitter: string | null
-          is_current: number
         }
+        const render = (r: DumpRow, current: boolean) =>
+          // r.elements is already JSON array text; splice it in verbatim.
+          `{"id":${r.id},"n":${r.n},"size":${r.size},"ratio":${r.ratio},` +
+          `"elements":${r.elements},"submitter":${JSON.stringify(r.submitter)},` +
+          `"created_at":${JSON.stringify(r.created_at)},"current":${current}}`
+        // Rows arrive in (n, size) order, so a row is the current record for
+        // its modulus iff the next row has a different n. That needs one row
+        // of lookahead, which may live in the next batch: `pending` holds the
+        // last row of the previous batch until its successor is seen.
+        let pending: DumpRow | null = null
         let lastN = -1
         let lastSize = -1
         let first = true
         for (;;) {
+          // Keyset pagination in (n, size) order — the unique index the
+          // table already has — so each batch is an indexed range scan.
           const { results }: { results: DumpRow[] } = await db
             .prepare(
               `SELECT w.id, w.n, w.size, w.ratio, w.elements, w.created_at,
-                      u.display_name AS submitter,
-                      (w.size = (SELECT MAX(size) FROM witnesses WHERE n = w.n)) AS is_current
+                      u.display_name AS submitter
                  FROM witnesses w LEFT JOIN users u ON u.id = w.submitter_user_id
                 WHERE (w.n, w.size) > (?, ?)
-                ORDER BY w.n, w.size LIMIT 500`,
+                ORDER BY w.n, w.size LIMIT ${DUMP_BATCH}`,
             )
             .bind(lastN, lastSize)
             .all<DumpRow>()
           if (results.length === 0) break
           let chunk = ''
           for (const r of results) {
-            // r.elements is already JSON array text; splice it in verbatim.
-            chunk +=
-              (first ? '' : ',') +
-              `{"id":${r.id},"n":${r.n},"size":${r.size},"ratio":${r.ratio},` +
-              `"elements":${r.elements},"submitter":${JSON.stringify(r.submitter)},` +
-              `"created_at":${JSON.stringify(r.created_at)},"current":${r.is_current ? 'true' : 'false'}}`
-            first = false
+            if (pending) {
+              chunk += (first ? '' : ',') + render(pending, pending.n !== r.n)
+              first = false
+            }
+            pending = r
           }
           await writer.write(encoder.encode(chunk))
           lastN = results[results.length - 1].n
           lastSize = results[results.length - 1].size
         }
+        // The final row of the table is necessarily current for its modulus.
+        if (pending) await writer.write(encoder.encode((first ? '' : ',') + render(pending, true)))
         await writer.write(encoder.encode(']}'))
         await writer.close()
       } catch (err) {
